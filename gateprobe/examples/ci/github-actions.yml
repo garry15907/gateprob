@@ -1,0 +1,66 @@
+# gateprobe CI 예시 (GitHub Actions). 저장소의 .github/workflows/ 에 두고 쓴다.
+#
+# 하는 일
+#   1. 시나리오와 대상 파일 형식 검사 (AWS 접속 없음. 모든 PR에서)
+#   2. 실제 Gateway에 고정 호출을 보내 허용/거부가 기대대로인지 확인 (main 브랜치, 수동 실행)
+#   3. JUnit 결과와 기록 JSON을 산출물로 올리고, 요약을 작업 화면에 표시
+#
+# 준비 (AWS 쪽, 한 번)
+#   - GitHub OIDC 공급자와, 이 저장소만 맡을 수 있는 IAM 역할
+#   - 역할 권한: bedrock-agentcore:InvokeGateway (점검할 Gateway만),
+#     사전 객체를 쓰는 시나리오라면 그 버킷 경로에만 s3:PutObject
+#   - 저장소 secrets: AWS_ROLE_ARN, GATEPROBE_URL_OPEN, GATEPROBE_URL_GUARDED
+#
+# 종료 코드: 0 통과, 1 기대와 다른 허용/거부(회귀), 2 판정 불가(전송 오류 등), 3 설정 오류
+name: gateway-policy-check
+
+on:
+  pull_request:
+    paths: ["policies/**", "infra/**", "gateprobe/**", "checks/**"]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # OIDC
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 형식 검사 (env: 로 적은 Gateway 주소는 여기서 읽지 않음)
+        run: python -m gateprobe validate --spec checks/spec.json --target checks/target_ci.json
+
+  run:
+    needs: validate
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    concurrency: gateprobe-live   # 같은 Gateway에 두 점검이 겹치지 않게
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install boto3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-1
+      - name: 고정 호출 점검
+        env:
+          GATEPROBE_URL_OPEN: ${{ secrets.GATEPROBE_URL_OPEN }}
+          GATEPROBE_URL_GUARDED: ${{ secrets.GATEPROBE_URL_GUARDED }}
+        run: >
+          python -m gateprobe run --execute
+          --spec checks/spec.json --target checks/target_ci.json
+          --out out/record.json --junit out/junit.xml --summary out/summary.md
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gateprobe-result
+          path: out/

@@ -1,0 +1,27 @@
+# gateprobe 패키지 정의.
+# 설치:   pip install .
+# 휠 만들기: pip wheel --no-deps -w dist .
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gateprobe"
+dynamic = ["version"]
+description = "Amazon Bedrock AgentCore Gateway 정책 회귀 점검 (고정 도구 호출로 허용/거부를 기대값과 비교)"
+readme = "gateprobe/README.md"
+requires-python = ">=3.10"
+dependencies = ["boto3>=1.40"]
+
+[project.scripts]
+gateprobe = "gateprobe.__main__:main"
+gwcheck = "gateprobe.__main__:main"   # 옛 이름 (0.4.0까지). 같은 프로그램
+
+[tool.setuptools]
+packages = ["gateprobe"]
+
+[tool.setuptools.dynamic]
+version = {attr = "gateprobe.__version__"}
+
+[tool.setuptools.package-data]
+gateprobe = ["README.md", "examples/*/*.json", "examples/*/*.yml", "examples/*/*.txt", "examples/*/*.md"]

@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.venv/
+# 계정 정보와 한때의 기록은 저장소에 넣지 않는다
+.gateprobe_vars.json
+.gwcheck_vars.json
+*_observed.json
+*.bak
+gateprobe_out/
