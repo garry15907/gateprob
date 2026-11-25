@@ -7,6 +7,7 @@ import os
 import subprocess
 import tempfile
 import threading
+import time
 from contextlib import redirect_stdout
 
 from gateprobe import ui_server as U
@@ -38,7 +39,7 @@ FULL = {"front": {"2": {"pick": "DENY", "where": "POLICY_DENY"}, "3": {"pick": "
 
 
 def git(cwd, *args):
-    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args], cwd=cwd,
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args], cwd=cwd, stdin=subprocess.DEVNULL, timeout=60,
                           capture_output=True, text=True, encoding="utf-8", errors="replace")
 
 
@@ -152,9 +153,10 @@ def run_tests():
             'commit -m "정상 확인: front, xrm-rf" "checks/spec core.json"',
             'push -u origin "gateprobe/expect-20261125-103000"'], g["commands"]
         assert g["back"].endswith('switch "main"')
-        assert g["pr_url"] == "https://github.com/o/r/compare/main...gateprobe%2Fexpect-20261125-103000?expand=1"
+        assert g["pr_url"].startswith("https://github.com/o/r/compare/main...gateprobe%2Fexpect-20261125-103000?expand=1&title=")
+        assert "&body=" in g["pr_url"] and g["message"] == "정상 확인: front, xrm-rf" and g["top"]
         assert "secret" not in json.dumps(g) and any("다른 변경 파일 1개" in w for w in g["warnings"])
-        assert any("GitHub에 없다" in w for w in g["warnings"])   # origin/main을 받아 온 적 없음
+        assert any("GitHub에 없습니다" in w for w in g["warnings"])   # origin/main을 받아 온 적 없음
         git(repo, "checkout", "-q", "--detach")
         assert not U.git_plan(path, ["front"])["ok"]
     with tempfile.TemporaryDirectory() as base:   # 저장소 밖
@@ -212,6 +214,8 @@ def run_tests():
             r = json.loads(body)
             assert code == 200 and r["saved"] and r["changed"] == 2 and r["locked"] == 2, r
             assert any("TODO" in e for e in r["errors"]) and r["git"] is None   # 잠긴 단계가 남아 올릴 명령은 없음
+            code, _, body = req("POST", "/api/push", {})
+            assert code == 400 and "먼저 파일로 저장" in json.loads(body)["error"]   # 올릴 계획이 없으면 거부
             saved = json.load(open(sp, encoding="utf-8"))
             assert saved["scenarios"][1]["steps"][1]["expect"] == "POLICY_DENY"
             assert json.loads(req("GET", "/api/state")[2])["counts"]["pick"] == 0
@@ -267,6 +271,149 @@ def run_tests():
         git(repo, "remote", "add", "origin", "https://github.com/o/r.git")
         g = U.git_plan(path, ["a"])
         assert not g["ok"] and "$" in g["reason"], g
+    n += 1
+
+    # 12. 자동 올리기 (0.6.0): 로컬 bare 저장소를 origin으로 두고 실제로 push. 그 파일 하나만 새 브랜치에 올라가고 main은 그대로
+    assert U._scrub("fatal: https://user:ghp_abc@github.com/o/r.git 없음") == "fatal: https://github.com/o/r.git 없음"
+    assert U._scrub("HTTPS://ghp_abc@github.com/o/r") == "HTTPS://github.com/o/r"
+    assert U._why("", "fatal: 'x' does not appear to be a git repository\nfatal: Could not read\n\nPlease make sure ... exists.") == "fatal: 'x' does not appear to be a git repository"
+
+    def make_repo(base, name="작업 저장소", spec_name="spec.json"):
+        origin, repo = os.path.join(base, name + ".git"), os.path.join(base, name)
+        git(base, "init", "-q", "--bare", "-b", "main", origin)
+        os.makedirs(os.path.join(repo, "checks")); git(repo, "init", "-q", "-b", "main")
+        git(repo, "config", "user.name", "t"); git(repo, "config", "user.email", "t@example.invalid")
+        path = os.path.join(repo, "checks", spec_name)
+        open(path, "w", encoding="utf-8").write(json.dumps(SPEC, ensure_ascii=False, indent=1) + "\n")
+        open(os.path.join(repo, "other.txt"), "w").write("a")
+        git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "init")
+        git(repo, "remote", "add", "origin", origin); git(repo, "push", "-q", "-u", "origin", "main")
+        return origin, repo, path
+
+    def plan_after_save(path, choices=FULL):
+        res = U.save_spec(path, U.apply_choices(SPEC, observed(SPEC), choices)[0])
+        g = U.git_plan(path, ["front"])
+        assert g["ok"], g
+        return {**g, "sha": res["sha"]}
+
+    head = lambda repo: git(repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    has = lambda repo, br: git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{br}").returncode == 0
+    with tempfile.TemporaryDirectory() as base:
+        origin, repo, path = make_repo(base)
+        main0 = git(repo, "rev-parse", "main").stdout.strip()
+        g = plan_after_save(path)
+        open(os.path.join(repo, "other.txt"), "w").write("b")   # 다른 수정은 올라가면 안 됨
+        assert g["pr_url"] is None   # GitHub 주소가 아니면 PR 주소 없음
+        r = U.push_plan(g)
+        assert r["ok"] and r["moved"] and r["back"].endswith('switch "main"'), r
+        files = git(origin, "diff", "--name-only", "main", g["branch"]).stdout.split()
+        assert files == ["checks/spec.json"], files
+        assert git(origin, "rev-parse", "main").stdout.strip() == main0   # main은 건드리지 않음
+        assert git(origin, "log", "-1", "--format=%s", g["branch"]).stdout.strip() == "정상 확인: front"
+        assert git(repo, "status", "--porcelain", "--", "other.txt").stdout.strip() == "M other.txt"   # 다른 수정은 그대로 남음
+        r2 = U.push_plan(g)   # 이미 새 브랜치에 있음
+        assert not r2["ok"] and "달라" in r2["reason"] and not r2["moved"], r2
+        git(repo, "switch", "-q", "main")
+        g3 = dict(g); g3.pop("sha")
+        r3 = U.push_plan(g3)   # 같은 이름 브랜치가 이미 있음
+        assert not r3["ok"] and "이미 있어" in r3["reason"], r3
+        g4 = U.git_plan(path, ["front"]); g4["branch"] = "gateprobe/expect-x2"
+        r4 = U.push_plan(g4)   # main의 파일은 커밋과 같음 (변경은 새 브랜치에만)
+        assert not r4["ok"] and "변경이 없습니다" in r4["reason"], r4
+        # 저장한 뒤 파일이 또 바뀌면 거부 (검사를 거치지 않은 내용)
+        g5 = plan_after_save(path); g5["branch"] = "gateprobe/expect-x5"
+        open(path, "a", encoding="utf-8").write("{깨진 JSON")
+        r5 = U.push_plan(g5)
+        assert not r5["ok"] and "저장한 뒤 파일이 바뀌어" in r5["reason"] and head(repo) == "main" and not has(repo, "gateprobe/expect-x5"), r5
+        git(repo, "checkout", "-q", "--", "checks/spec.json")
+        # push 실패: origin을 없는 곳으로. 커밋은 남고, 이어서 할 명령과 돌아가는 명령을 알려 줌
+        g6 = plan_after_save(path, {"front": {"2": {"pick": "ALLOW"}, "3": {"pick": "ALLOW"}}}); g6["branch"] = "gateprobe/expect-x6"
+        git(repo, "remote", "set-url", "origin", os.path.join(base, "없음.git"))
+        r6 = U.push_plan(g6)
+        assert not r6["ok"] and r6["moved"] and "push -u origin" in r6["next"] and r6["back"] and "fatal:" in r6["reason"], r6
+        assert head(repo) == "gateprobe/expect-x6"
+        # 커밋 실패(빈 메시지)면 원래 브랜치로 되돌리고 새 브랜치를 지우고, 올려 둔(staged) 것도 내림
+        git(repo, "switch", "-q", "main"); git(repo, "remote", "set-url", "origin", origin)
+        g7 = plan_after_save(path, {"front": {"2": {"pick": "RECORD"}, "3": {"pick": "ALLOW"}}})
+        g7["branch"] = "gateprobe/expect-x7"; g7["message"] = ""
+        r7 = U.push_plan(g7)
+        assert not r7["ok"] and "커밋하지 못했습니다" in r7["reason"] and "돌아왔습니다" in r7["reason"] and not r7["moved"], r7
+        assert head(repo) == "main" and not has(repo, "gateprobe/expect-x7")
+        assert git(repo, "diff", "--cached", "--quiet").returncode == 0   # staged 남지 않음
+        assert git(repo, "diff", "--quiet", "--", "checks/spec.json").returncode == 1   # 저장한 내용은 그대로
+        # 시간 초과: 커밋 훅이 오래 걸리면 되돌림. 자식 프로세스까지 끝내 제한 시간 근처에서 돌아옴
+        hooks = os.path.join(repo, ".git", "hooks")
+        open(os.path.join(hooks, "pre-commit"), "w", newline="\n").write("#!/bin/sh\nsleep 6\n")
+        g8 = dict(g7); g8["branch"] = "gateprobe/expect-x8"; g8["message"] = "정상 확인: front"
+        t0 = time.time(); r8 = U.push_plan(g8, step_timeout=1)
+        assert time.time() - t0 < 5, time.time() - t0
+        assert not r8["ok"] and "제한 시간" in r8["reason"] and head(repo) == "main" and not has(repo, "gateprobe/expect-x8"), r8
+        os.remove(os.path.join(hooks, "pre-commit"))
+        # push 시간 초과: 커밋은 남고 이어서 할 명령을 알려 줌
+        open(os.path.join(hooks, "pre-push"), "w", newline="\n").write("#!/bin/sh\nsleep 6\n")
+        g9 = dict(g8); g9["branch"] = "gateprobe/expect-x9"
+        t0 = time.time(); r9 = U.push_plan(g9, push_timeout=1)
+        assert time.time() - t0 < 8, time.time() - t0
+        assert not r9["ok"] and r9["moved"] and "끝나지 않았습니다" in r9["reason"] and "push -u origin" in r9["next"], r9
+        assert head(repo) == "gateprobe/expect-x9"
+        os.remove(os.path.join(hooks, "pre-push"))
+    # 파일 이름의 [ ]를 패턴으로 읽지 않음: s1.json의 커밋 안 한 수정이 딸려 가지 않음 (보안 검토 11-25)
+    with tempfile.TemporaryDirectory() as base:
+        origin, repo, path = make_repo(base, "r2", "s[1].json")
+        open(os.path.join(repo, "checks", "s1.json"), "w").write("{}")
+        git(repo, "add", "-A"); git(repo, "commit", "-q", "-m", "s1"); git(repo, "push", "-q")
+        open(os.path.join(repo, "checks", "s1.json"), "w").write('{"token": "x"}')
+        g = plan_after_save(path)
+        r = U.push_plan(g)
+        assert r["ok"], r
+        assert git(origin, "diff", "--name-only", "main", g["branch"]).stdout.split() == ["checks/s[1].json"]
+    # git 사용자 이름이 없으면 아무것도 바꾸기 전에 거부하고 안내
+    with tempfile.TemporaryDirectory() as base:
+        origin, repo, path = make_repo(base, "r3")
+        git(repo, "config", "--unset", "user.name"); git(repo, "config", "--unset", "user.email")
+        empty = os.path.join(base, "empty.gitconfig"); open(empty, "w").close()
+        old = {k: os.environ.get(k) for k in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM")}
+        os.environ.update(GIT_CONFIG_GLOBAL=empty, GIT_CONFIG_NOSYSTEM="1")
+        try:
+            if U._git(repo, "var", "GIT_COMMITTER_IDENT")[0]:   # 이 PC가 이름을 짐작해 내면 건너뜀
+                g = plan_after_save(path)
+                assert any("user.name" in w for w in g["warnings"]), g["warnings"]
+                r = U.push_plan(g)
+                assert not r["ok"] and "user.name" in r["reason"] and head(repo) == "main" and not has(repo, g["branch"]), r
+        finally:
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    # 화면 서버: 저장 뒤 올리기, 두 번째는 거부, 올리는 중에는 저장 거부
+    with tempfile.TemporaryDirectory() as base:
+        origin, repo, path = make_repo(base, "r4")
+        spec2 = json.loads(json.dumps(SPEC)); del spec2["scenarios"][2:]   # 잠길 단계 없는 시나리오만
+        open(path, "w", encoding="utf-8").write(json.dumps(spec2, ensure_ascii=False, indent=1) + "\n")
+        git(repo, "commit", "-q", "-am", "two"); git(repo, "push", "-q")
+        dp = os.path.join(repo, "checks", "spec_observed.json")
+        d2 = observed(SPEC); del d2["scenarios"][2:]
+        json.dump(d2, open(dp, "w", encoding="utf-8"), ensure_ascii=False)
+        app = U.App(path, dp); app.open_browser = False
+        try:
+            app.push(); raise AssertionError("저장 전에 올림")
+        except ValueError:
+            pass
+        r = app.save(FULL)
+        assert r["saved"] and r["git"]["ok"] and not r["errors"] and not r["locked"], r
+        app.pushing = True
+        try:
+            app.save(FULL); raise AssertionError("올리는 중에 저장함")
+        except ValueError:
+            pass
+        app.pushing = False
+        p = app.push()
+        assert p["ok"] and p["opened"] is False and p["branch"] == r["git"]["branch"], p
+        try:
+            app.push(); raise AssertionError("두 번 올림")
+        except ValueError:
+            pass
     n += 1
     print(f"정상 확인 화면 시험 통과 ({n}개)")
 

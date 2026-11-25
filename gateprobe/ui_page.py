@@ -49,11 +49,17 @@ legend{font-weight:700;padding:0;margin:0 0 4px;font-size:13px}
 .bottom{border-top:2px solid #111;padding-top:12px;margin-top:8px}
 button{font:inherit;padding:6px 14px;border:1px solid #111;background:#fff;color:#111;cursor:pointer}
 button:disabled{color:#595959;border-color:#bbb;cursor:not-allowed}
+button.primary{background:#111;color:#fff;font-weight:700;padding:8px 18px}
+button.primary:disabled{background:#ddd;color:#595959}
 button.link{border:0;padding:0;text-decoration:underline;background:none;color:#1a4f9c;text-align:left}
 button:focus-visible,a:focus-visible,pre:focus-visible,summary:focus-visible{outline:3px solid #1a5fb4;outline-offset:2px}
 pre.cmd{background:#f4f4f4;border:1px solid #bbb;padding:8px 10px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;margin:8px 0}
 a{color:#1a4f9c;overflow-wrap:anywhere}
 #status p,#git p{margin:4px 0}
+#git h2{margin-top:18px}
+.check{border:1px solid #7a5200;padding:6px 12px;margin:8px 0}
+.check ul{margin:2px 0 4px;padding-left:20px}
+#git button.primary{margin:6px 0 8px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 ol.howto{margin:0 0 6px;padding-left:20px}
 @media (max-width:700px){.paper{margin:0;padding:16px 12px;border:0}.opt{min-width:0;flex:1 1 100%}}
@@ -62,10 +68,10 @@ ol.howto{margin:0 0 6px;padding-left:20px}
 <h1>정상 확인</h1>
 <p class="files" id="files"></p>
 <div class="guide">
-<ol class="howto"><li>단계마다 그 호출이 통과해야 하는지(허용), 막혀야 하는지(차단)를 고릅니다. 이것을 <b>정상</b>이라 부릅니다</li>
-<li>맨 아래 <b>파일로 저장</b>을 누릅니다</li>
-<li>(선택) 저장 뒤 나오는 명령으로 GitHub에 올립니다</li></ol>
-<p>정상은 업무 규칙을 아는 사람이 정하는 칸이라 미리 채워 두지 않았습니다. <b>지금 결과</b>는 지금 정책에 시험 호출을 한 번 보내 본 결과(observe 단계)일 뿐 정답이 아닙니다. 업무 규칙에 따라 고릅니다.</p>
+<ol class="howto"><li>단계마다 그 호출이 통과해야 하는지(허용), 막혀야 하는지(차단)를 고르세요. 이것을 <b>정상</b>이라 부릅니다</li>
+<li>맨 아래 <b>파일로 저장</b>을 누르세요</li>
+<li>(선택) 저장 뒤 나오는 <b>GitHub에 올리기</b>를 누르면 새 브랜치로 올리고 PR 만들기 페이지를 엽니다. PR은 그 페이지에서 직접 만드세요</li></ol>
+<p>정상은 업무 규칙을 아는 사람이 정하는 칸이라 미리 채워 두지 않았습니다. <b>지금 결과</b>는 지금 정책에 시험 호출을 한 번 보내 본 결과(observe 단계)일 뿐 정답이 아닙니다. 업무 규칙에 따라 고르세요.</p>
 <details><summary>말 풀이</summary><dl class="terms">
 <dt>허용</dt><dd>호출이 통과해 도구가 실행됨</dd>
 <dt>차단 (정책)</dt><dd>Gateway에 붙은 정책이 막음</dd>
@@ -74,8 +80,11 @@ ol.howto{margin:0 0 6px;padding-left:20px}
 <dt>도구 오류</dt><dd>도구는 실행됐지만 업무 오류를 돌려줌 (예: 잔액 부족)</dd>
 <dt>판정 불가</dt><dd>연결 오류 등으로 결과를 나누지 못함</dd>
 <dt>validate</dt><dd>파일 형식 검사</dd>
-<dt>PR</dt><dd>바꾼 내용을 검토해 달라고 GitHub에 올리는 요청</dd>
-<dt>CI</dt><dd>PR을 올리면 자동으로 도는 점검</dd>
+<dt>브랜치</dt><dd>main과 따로 쌓는 작업 줄. 합치기 전에는 main에 영향이 없음</dd>
+<dt>커밋</dt><dd>바꾼 파일을 저장소 기록에 남기는 일</dd>
+<dt>올리기(push)</dt><dd>이 컴퓨터의 브랜치를 GitHub에 보내는 일</dd>
+<dt>PR</dt><dd>올린 브랜치를 main에 합쳐 달라는 요청. 열린 페이지에서 'Create pull request'를 눌러야 생김</dd>
+<dt>CI</dt><dd>PR을 만들면 자동으로 도는 점검</dd>
 </dl><p class="s">고를 수 있는 것은 허용, 차단, 기록만입니다. 도구 오류와 판정 불가는 지금 결과에만 나오고, 그런 단계는 파일에서 정합니다.</p></details>
 </div>
 <p id="progress" aria-live="polite"></p>
@@ -183,7 +192,7 @@ function render() {
   f.append(el("span", null, "원본: " + S.spec), el("br"), el("span", null, "초안: " + S.draft));
   var iss = $("issues"); iss.textContent = "";
   if (S.issues.length) {
-    iss.append(el("p", "bad", "observe 뒤에 원본이 바뀌어 이 초안으로는 저장할 수 없습니다. observe를 다시 돌린 뒤 여세요."));
+    iss.append(el("p", "bad", "observe 뒤에 원본이 바뀌어 이 초안으로는 저장할 수 없습니다. observe를 다시 돌린 뒤 화면을 다시 여세요."));
     var ul = el("ul"); S.issues.forEach(function (x) { ul.append(el("li", null, x)); }); iss.append(ul);
     $("save").disabled = true;
   }
@@ -236,36 +245,80 @@ function focusStep(id, n) {
   box.scrollIntoView({block: "center"});
   var i = box.querySelector("input"); if (i) i.focus();
 }
-function showGit(g) {
+function cmdBlock(text, label) {
+  var pre = el("pre", "cmd", text); pre.tabIndex = 0; pre.setAttribute("aria-label", label); return pre;
+}
+function showGit(g, r) {
   var box = $("git"); box.textContent = "";
   if (!g) return;
   box.append(el("h2", null, "GitHub에 올리기 (선택)"));
   if (!g.ok) { box.append(el("p", null, g.reason)); return; }
-  box.append(el("p", null, "터미널에서 아래 명령을 차례로 실행합니다. 새 브랜치를 만들어 " + g.file + " 하나만 커밋하고 올립니다. GitHub를 쓰지 않으면 건너뜁니다."));
-  var text = g.commands.join("\n"), pre = el("pre", "cmd", text);
-  pre.tabIndex = 0; pre.setAttribute("aria-label", "실행할 명령");
+  var blocked = r && (r.errors.length || r.locked);
+  var what = "새 브랜치(" + g.branch + ")를 만들고 이 컴퓨터를 그 브랜치로 옮깁니다. 그 브랜치에 " + g.file +
+    " 하나만 커밋해 GitHub에 올립니다. " + g.base + " 브랜치는 바뀌지 않습니다.";
+  box.append(el("p", null, "누르면 " + what + " PR은 열리는 페이지에서 직접 만드세요. GitHub를 쓰지 않으면 건너뛰세요."));
+  if (g.warnings.length) {
+    var wb = el("div", "check"); wb.append(el("p", "warn", "올리기 전에 확인하세요"));
+    var ul = el("ul"); g.warnings.forEach(function (w) { ul.append(el("li", null, w)); }); wb.append(ul); box.append(wb);
+  }
+  var up = el("button", "primary", "GitHub에 올리기"), res = el("div");
+  up.type = "button"; up.id = "push"; res.setAttribute("role", "status");
+  if (blocked) { up.disabled = true; box.append(el("p", "warn", "위 문제를 먼저 고쳐야 올릴 수 있습니다. CI가 이 파일을 거부합니다.")); }
+  var det = el("details");
+  up.addEventListener("click", function () {
+    var ask = what + " PR은 열리는 페이지에서 직접 만들어야 합니다." +
+      (g.warnings.length ? "\n\n확인할 점:\n- " + g.warnings.join("\n- ") : "") + "\n\n진행할까요?";
+    if (!confirm(ask)) return;
+    up.disabled = true; res.className = ""; res.setAttribute("role", "status");
+    res.textContent = "올리는 중입니다. GitHub 로그인 창이 뜨면 로그인하세요. 몇 분 걸릴 수 있습니다.";
+    api("/api/push", {}).then(function (p) {
+      res.textContent = "";
+      if (!p.ok) {
+        res.className = "bad"; res.setAttribute("role", "alert");
+        res.append(el("p", null, "올리지 못했습니다. " + p.reason));
+        if (p.next) res.append(cmdBlock(p.next, "이어서 실행할 명령"));
+        if (p.back) { res.append(el("p", null, "올리기를 그만두고 원래 브랜치로 돌아가려면:")); res.append(cmdBlock(p.back, "돌아가는 명령")); }
+        if (p.moved) det.remove(); else up.disabled = !!blocked;
+        return;
+      }
+      det.remove();
+      res.append(el("p", "ok", "올렸습니다: 새 브랜치(" + p.branch + ")"));
+      if (p.pr_url) {
+        var q = el("p", null, p.opened ? "PR 만들기 페이지를 브라우저에 열었습니다. 열리지 않았으면: " : "PR 만들기 페이지: ");
+        var a = el("a", null, "PR 만들기 페이지 열기"); a.href = p.pr_url; a.target = "_blank"; a.rel = "noopener noreferrer";
+        q.append(a); res.append(q);
+        res.append(el("p", null, "그 페이지에서 'Create pull request'를 눌러야 PR이 생기고, CI가 새로 정한 정상으로 지금 정책을 점검합니다."));
+      } else res.append(el("p", null, "origin이 GitHub가 아니라 PR 주소를 만들지 못했습니다. 그 서비스에서 PR을 만드세요."));
+      res.append(el("p", "warn", "이 컴퓨터는 지금 새 브랜치(" + p.branch + ")에 있습니다. 다른 작업이나 다음 정상 확인 전에 " +
+        "터미널에서 아래 명령으로 원래 브랜치에 돌아가세요. PR이 합쳐진 뒤에는 git pull로 원래 브랜치(" + p.base + ")를 최신으로 받으세요."));
+      res.append(cmdBlock(p.back, "돌아가는 명령"));
+    }).catch(function (e) {
+      res.className = "bad"; res.setAttribute("role", "alert"); res.textContent = "올리지 못했습니다: " + e.message; up.disabled = !!blocked;
+    });
+  });
+  box.append(up, res);
+  var sm = el("summary", null, "직접 하려면 (터미널 명령 네 줄)");
+  det.append(sm, el("p", "s", "버튼 대신 터미널에서 차례로 실행해도 결과는 같습니다."));
+  var text = g.commands.join("\n"), pre = cmdBlock(text, "실행할 명령");
   var b = el("button", null, "명령 복사"), msg = el("span", "s");
   b.type = "button"; msg.setAttribute("role", "status");
   b.addEventListener("click", function () {
     var done = function () { msg.textContent = " 복사했습니다"; };
     var fallback = function () {
-      var r = document.createRange(); r.selectNodeContents(pre);
-      var s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      var rg = document.createRange(); rg.selectNodeContents(pre);
+      var s = getSelection(); s.removeAllRanges(); s.addRange(rg);
       msg.textContent = " 선택했습니다. Ctrl+C로 복사하세요";
     };
     if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, fallback); else fallback();
   });
-  box.append(pre, b, msg);
+  det.append(pre, b, msg);
   if (g.pr_url) {
-    var p = el("p", null, "올리기가 끝나면 이 주소에서 PR을 만듭니다. PR을 열면 CI가 새 정상으로 점검합니다: ");
-    var a = el("a", null, g.pr_url); a.href = g.pr_url; a.target = "_blank"; a.rel = "noopener noreferrer";
-    p.append(a); box.append(p);
+    var pp = el("p", null, "올린 뒤 여기서 PR을 만드세요: ");
+    var aa = el("a", null, "PR 만들기 페이지 열기"); aa.href = g.pr_url; aa.target = "_blank"; aa.rel = "noopener noreferrer";
+    pp.append(aa); det.append(pp);
   }
-  if (g.warnings.length) {
-    box.append(el("p", null, "저장은 끝났습니다. 아래는 올릴 때 참고할 점입니다."));
-    var ul = el("ul", "warn"); g.warnings.forEach(function (w) { ul.append(el("li", null, w)); }); box.append(ul);
-  }
-  box.append(el("p", "s", "다 하고 원래 브랜치로 돌아가려면: " + g.back));
+  det.append(el("p", "s", "다 하고 원래 브랜치로 돌아가려면: " + g.back));
+  box.append(det);
 }
 function save() {
   var st = $("status"); st.textContent = ""; st.className = ""; st.setAttribute("role", "status");
@@ -294,14 +347,14 @@ function save() {
     if (!r.same_format) st.append(el("p", "warn", "원본 파일 형식이 달라 변경 내역(diff)이 커질 수 있습니다."));
     if (r.note) st.append(el("p", null, r.note));
     if (r.errors.length) {
-      st.append(el("p", "bad", "파일 형식 검사(validate): 문제 " + r.errors.length + "개. 고친 뒤 올립니다."));
+      st.append(el("p", "bad", "파일 형식 검사(validate): 문제 " + r.errors.length + "개. 고친 뒤 올리세요."));
       var ul = el("ul"); r.errors.slice(0, 20).forEach(function (x) { ul.append(el("li", null, x)); }); st.append(ul);
     } else st.append(el("p", null, "파일 형식 검사(validate): 문제 없음"));
     if (r.locked) st.append(el("p", "warn", "파일에서 정해야 하는 단계 " + r.locked + "개가 남아 있어, 이대로는 run과 CI가 거부합니다."));
-    showGit(r.git);
+    showGit(r.git, r);
     choices = {};
     return api("/api/state").then(function (s) { S = s; render(); }, function () {
-      st.append(el("p", "warn", "저장은 했지만 화면을 새로 읽지 못했습니다. 새로 고침(F5)을 누릅니다."));
+      st.append(el("p", "warn", "저장은 했지만 화면을 새로 읽지 못했습니다. 새로 고침(F5)을 누르세요."));
     });
   }).catch(function (e) {
     $("save").disabled = false; st.className = "bad"; st.setAttribute("role", "alert"); st.textContent = "저장하지 못했습니다: " + e.message;
